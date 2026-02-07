@@ -1,82 +1,68 @@
 import streamlit as st
-# שינוי קריטי: ייבוא הפונקציה הספציפית ישירות
 from youtube_transcript_api import YouTubeTranscriptApi
-from youtube_transcript_api.formatters import TextFormatter
-import requests
+import google.generativeai as genai
 
-st.set_page_config(page_title="YouTube Summarizer", layout="centered")
-
-# --- שים כאן את הכתובת שלך ---
-webhook_url = "PASTE_YOUR_WEBHOOK_URL_HERE"
+st.set_page_config(page_title="Gemini Video Summarizer", page_icon="✨", layout="centered")
 
 st.markdown("""
 <style>
     .stApp { direction: rtl; text-align: right; }
-    h1, h2, h3, p, div, span, label { text-align: right; }
+    h1, h2, h3, p, div, span, label, .stMarkdown { text-align: right; }
     .stTextInput > div > div > input { text-align: right; direction: rtl; }
-    .stSelectbox > div > div > div { direction: rtl; text-align: right; }
     .stTextArea > div > div > textarea { text-align: right; direction: rtl; }
+    .stSelectbox > div > div > div { direction: rtl; text-align: right; }
     .stButton>button {
         width: 100%;
-        background-color: #FF0000;
+        background-color: #4b8bf5;
         color: white;
         border-radius: 10px;
         padding: 10px;
-        border: none;
         font-weight: bold;
+        border: none;
     }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📺 סיכום סרטונים חכם")
+st.title("✨ סיכום סרטונים עם Gemini")
 
-with st.form("summary_form"):
-    url = st.text_input("🔗 קישור ליוטיוב")
+# תפריט צד למפתח
+with st.sidebar:
+    st.header("הגדרות")
+    api_key = st.text_input("Gemini API Key", type="password")
+
+with st.form("my_form"):
+    url = st.text_input("🔗 קישור לסרטון יוטיוב")
     col1, col2 = st.columns(2)
     with col1:
-        length = st.selectbox("📏 אורך", ["תמציתי", "מפורט", "נקודות"])
+        length = st.selectbox("📏 אורך", ["פסקה אחת", "סיכום מפורט", "נקודות"])
     with col2:
         style = st.selectbox("🎨 סגנון", ["מקצועי", "קליל", "לימודי"])
-    notes = st.text_area("✍️ הערות")
-    email = st.text_input("📧 אימייל")
-    submitted = st.form_submit_button("🚀 סכם ושלח")
+    prompt_text = st.text_area("✍️ בקשות מיוחדות")
+    submitted = st.form_submit_button("🚀 סכם לי!")
 
 if submitted:
-    if not url or not email:
-        st.error("נא למלא את כל הפרטים")
+    if not api_key:
+        st.error("❌ חסר מפתח API בצד ימין (בהגדרות).")
+    elif not url:
+        st.warning("⚠️ נא להכניס קישור.")
     else:
-        with st.spinner('מחלץ תמלול...'):
-            try:
-                video_id = None
-                if "v=" in url:
-                    video_id = url.split("v=")[1].split("&")[0]
-                elif "youtu.be" in url:
-                    video_id = url.split("/")[-1]
-
-                if video_id:
-                    # שימוש בפונקציה הישירה שיבאנו למעלה
-                    transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['he', 'en'])
-                    
-                    formatter = TextFormatter()
-                    text_data = formatter.format_transcript(transcript)
-                    
-                    payload = {
-                        "transcript": text_data,
-                        "user_email": email,
-                        "summary_length": length,
-                        "style": style,
-                        "special_instructions": notes,
-                        "video_url": url
-                    }
-                    
-                    response = requests.post(webhook_url, json=payload)
-                    if response.status_code == 200:
-                        st.success("נשלח בהצלחה!")
-                        st.balloons()
-                    else:
-                        st.error(f"שגיאה: {response.status_code}")
-                else:
-                    st.error("קישור לא תקין")
-            except Exception as e:
-                st.error("שגיאה בחילוץ התמלול:")
-                st.write(e)
+        status = st.empty()
+        try:
+            status.info("📥 מחלץ טקסט...")
+            video_id = url.split("v=")[1].split("&")[0] if "v=" in url else url.split("/")[-1]
+            
+            transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['he', 'en'])
+            full_text = " ".join([d['text'] for d in transcript_list])
+            
+            status.info("✨ ג'מיני חושב...")
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            
+            response = model.generate_content(f"סכם בעברית: {full_text[:30000]}. אורך: {length}, סגנון: {style}. {prompt_text}")
+            
+            status.empty()
+            st.success("הסיכום מוכן!")
+            st.write(response.text)
+            
+        except Exception as e:
+            st.error(f"שגיאה: {e}")
