@@ -1,14 +1,14 @@
 import streamlit as st
-import youtube_transcript_api
+# שינוי קריטי: ייבוא הפונקציה הספציפית ישירות
+from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api.formatters import TextFormatter
 import requests
 
 st.set_page_config(page_title="YouTube Summarizer", layout="centered")
 
-# --- WEBHOOK URL ---
-webhook_url = "https://cloud.activepieces.com/api/v1/webhooks/HDSgK2B66mVb6nQSsNFVx"
+# --- שים כאן את הכתובת שלך ---
+webhook_url = "PASTE_YOUR_WEBHOOK_URL_HERE"
 
-# --- CSS STYLING ---
 st.markdown("""
 <style>
     .stApp { direction: rtl; text-align: right; }
@@ -47,7 +47,6 @@ if submitted:
     else:
         with st.spinner('מחלץ תמלול...'):
             try:
-                # Extract Video ID
                 video_id = None
                 if "v=" in url:
                     video_id = url.split("v=")[1].split("&")[0]
@@ -55,8 +54,8 @@ if submitted:
                     video_id = url.split("/")[-1]
 
                 if video_id:
-                    # SAFE IMPORT METHOD
-                    transcript = youtube_transcript_api.YouTubeTranscriptApi.get_transcript(video_id, languages=['he', 'en'])
+                    # שימוש בפונקציה הישירה שיבאנו למעלה
+                    transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['he', 'en'])
                     
                     formatter = TextFormatter()
                     text_data = formatter.format_transcript(transcript)
@@ -81,4 +80,3 @@ if submitted:
             except Exception as e:
                 st.error("שגיאה בחילוץ התמלול:")
                 st.write(e)
-                st.info("וודא שלסרטון יש כתוביות זמינות")
