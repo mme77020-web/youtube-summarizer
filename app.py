@@ -1,16 +1,16 @@
 import streamlit as st
-import youtube_transcript_api
-from youtube_transcript_api import YouTubeTranscriptApi # ניסיון ייבוא ישיר
+# שימוש בכינוי (alias) כדי למנוע בלבול בשמות
+from youtube_transcript_api import YouTubeTranscriptApi as YTApi
 from youtube_transcript_api.formatters import TextFormatter
 import requests
 
-# --- הגדרות עמוד ועיצוב ---
+# --- הגדרות עמוד ---
 st.set_page_config(page_title="YouTube Summarizer", page_icon="📺", layout="centered")
 
-# --- וודא שאתה שם כאן את הכתובת שלך! ---
-webhook_url = "PASTE_YOUR_WEBHOOK_URL_HERE"
+# --- הזן את הכתובת שלך כאן ---
+webhook_url = "https://cloud.activepieces.com/api/v1/webhooks/HDSgK2B66mVb6nQSsNFVx"
 
-# --- עיצוב CSS ---
+# --- עיצוב ---
 st.markdown("""
 <style>
     .stApp { direction: rtl; text-align: right; }
@@ -25,20 +25,13 @@ st.markdown("""
         padding: 10px;
         border: none;
     }
-    div[data-testid="stForm"] {
-        background-color: #f9f9f9;
-        padding: 30px;
-        border-radius: 15px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-    }
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown("<h1 style='text-align: center; color: #FF0000;'>📺 סיכום סרטונים חכם</h1>", unsafe_allow_html=True)
+st.title("📺 סיכום סרטונים חכם")
 
 # --- הטופס ---
 with st.form("summary_form"):
-    st.markdown("### 📝 פרטי הבקשה")
     url = st.text_input("🔗 קישור לסרטון יוטיוב")
     
     col1, col2 = st.columns(2)
@@ -47,34 +40,32 @@ with st.form("summary_form"):
     with col2:
         style = st.selectbox("🎨 סגנון", ["מקצועי", "קליל", "לימודי"])
     
-    notes = st.text_area("✍️ הערות")
-    email = st.text_input("📧 לאן לשלוח? (כתובת המייל שלך)")
+    notes = st.text_area("✍️ הערות (אופציונלי)")
+    email = st.text_input("📧 לאן לשלוח? (המייל שלך)")
     
-    submitted = st.form_submit_button("🚀 סכם ושלח למייל")
+    submitted = st.form_submit_button("🚀 סכם ושלח")
 
 if submitted:
     if not url or not email:
-        st.warning("⚠️ נא למלא קישור ומייל")
+        st.warning("⚠️ נא למלא את כל הפרטים")
     else:
-        with st.spinner('⏳ עובד על זה...'):
+        with st.spinner('⏳ מחלץ תמלול...'):
             try:
-                # חילוץ ID
+                # חילוץ ה-ID של הסרטון
+                video_id = None
                 if "v=" in url:
                     video_id = url.split("v=")[1].split("&")[0]
                 elif "youtu.be" in url:
                     video_id = url.split("/")[-1]
-                else:
-                    video_id = None
 
                 if video_id:
-                    # --- התיקון נמצא כאן ---
-                    # שימוש בייבוא המלא והבטוח ביותר
-                    transcript = youtube_transcript_api.YouTubeTranscriptApi.get_transcript(video_id, languages=['he', 'en'])
+                    # שימוש בשם החדש והפשוט (YTApi)
+                    transcript = YTApi.get_transcript(video_id, languages=['he', 'en'])
                     
                     formatter = TextFormatter()
                     text_data = formatter.format_transcript(transcript)
                     
-                    # שליחה
+                    # שליחה ל-Activepieces
                     payload = {
                         "transcript": text_data,
                         "user_email": email,
@@ -87,13 +78,14 @@ if submitted:
                     response = requests.post(webhook_url, json=payload)
                     
                     if response.status_code == 200:
+                        st.success(f"✅ הצלחנו! הסיכום בדרך למייל: {email}")
                         st.balloons()
-                        st.success(f"✅ נשלח בהצלחה ל-{email}!")
                     else:
-                        st.error(f"שגיאה בשליחה: {response.status_code}")
+                        st.error(f"שגיאה בשליחה לאוטומציה: {response.status_code}")
                 else:
-                    st.error("קישור לא תקין")
-                    
+                    st.error("❌ הקישור לא תקין")
+            
             except Exception as e:
-                st.error(f"תקלה: {e}")
-                st.info("טיפ: נסה לוודא שלסרטון יש כתוביות.")
+                st.error("😓 שגיאה בחילוץ התמלול:")
+                st.code(str(e)) # יציג את השגיאה המדויקת באנגלית
+                st.info("טיפ: וודא שלסרטון יש כתוביות (CC) זמינות ביוטיוב.")
