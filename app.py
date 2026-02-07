@@ -1,21 +1,23 @@
 import streamlit as st
-# שימוש בכינוי (alias) כדי למנוע בלבול בשמות
-from youtube_transcript_api import YouTubeTranscriptApi as YTApi
+from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api.formatters import TextFormatter
 import requests
 
 # --- הגדרות עמוד ---
 st.set_page_config(page_title="YouTube Summarizer", page_icon="📺", layout="centered")
 
-# --- הזן את הכתובת שלך כאן ---
+# --- הזן את הכתובת שלך כאן (בתוך המרכאות!) ---
 webhook_url = "https://cloud.activepieces.com/api/v1/webhooks/HDSgK2B66mVb6nQSsNFVx"
 
 # --- עיצוב ---
 st.markdown("""
 <style>
     .stApp { direction: rtl; text-align: right; }
-    h1, h2, h3, p, div { text-align: right; }
-    .stTextInput input { text-align: right; direction: rtl; }
+    h1, h2, h3, p, div, label { text-align: right; }
+    .stTextInput > div > div > input { text-align: right; direction: rtl; }
+    .stTextArea > div > div > textarea { text-align: right; direction: rtl; }
+    .stSelectbox > div > div > div { direction: rtl; text-align: right; }
+    
     .stButton>button {
         width: 100%;
         background-color: #FF0000;
@@ -59,33 +61,4 @@ if submitted:
                     video_id = url.split("/")[-1]
 
                 if video_id:
-                    # שימוש בשם החדש והפשוט (YTApi)
-                    transcript = YTApi.get_transcript(video_id, languages=['he', 'en'])
-                    
-                    formatter = TextFormatter()
-                    text_data = formatter.format_transcript(transcript)
-                    
-                    # שליחה ל-Activepieces
-                    payload = {
-                        "transcript": text_data,
-                        "user_email": email,
-                        "summary_length": length,
-                        "style": style,
-                        "special_instructions": notes,
-                        "video_url": url
-                    }
-                    
-                    response = requests.post(webhook_url, json=payload)
-                    
-                    if response.status_code == 200:
-                        st.success(f"✅ הצלחנו! הסיכום בדרך למייל: {email}")
-                        st.balloons()
-                    else:
-                        st.error(f"שגיאה בשליחה לאוטומציה: {response.status_code}")
-                else:
-                    st.error("❌ הקישור לא תקין")
-            
-            except Exception as e:
-                st.error("😓 שגיאה בחילוץ התמלול:")
-                st.code(str(e)) # יציג את השגיאה המדויקת באנגלית
-                st.info("טיפ: וודא שלסרטון יש כתוביות (CC) זמינות ביוטיוב.")
+                    # התיקון: שימוש בפקודה הישירה והפ
