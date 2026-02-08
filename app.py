@@ -1,36 +1,11 @@
 import streamlit as st
+import yt_dlp
+import google.generativeai as genai
 import os
-import sys
-import shutil
 
-# --- הגדרות עמוד ---
+# --- הגדרות עיצוב ---
 st.set_page_config(page_title="Gemini Video Summarizer", page_icon="✨", layout="centered")
 
-# --- חלק 1: ניקוי עצמי ותיקון אוטומטי ---
-# הקוד הזה רץ לפני הכל ובודק אם יש קבצים שמפריעים
-if os.path.exists("youtube_transcript_api.py"):
-    try:
-        os.remove("youtube_transcript_api.py")
-        st.toast("🗑️ קובץ מתנגש נמחק אוטומטית!", icon="✅")
-    except:
-        st.error("יש קובץ בשם youtube_transcript_api.py שחוסם אותנו. אנא מחק אותו ידנית.")
-
-# --- חלק 2: ייבוא חכם ---
-try:
-    # מנסים לייבא מהמקום הכי עמוק וישיר בספרייה כדי לעקוף בלבולים
-    from youtube_transcript_api._api import YouTubeTranscriptApi
-    from youtube_transcript_api.formatters import TextFormatter
-except ImportError:
-    # אם זה נכשל, מנסים להתקין מחדש תוך כדי ריצה
-    st.warning("מתקן את ההתקנה... (זה ייקח רגע)")
-    import subprocess
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "youtube-transcript-api"])
-    from youtube_transcript_api._api import YouTubeTranscriptApi
-    from youtube_transcript_api.formatters import TextFormatter
-
-import google.generativeai as genai
-
-# --- חלק 3: עיצוב האתר ---
 st.markdown("""
 <style>
     .stApp { direction: rtl; text-align: right; }
@@ -39,93 +14,122 @@ st.markdown("""
     .stTextArea > div > div > textarea { text-align: right; direction: rtl; }
     .stSelectbox > div > div > div { direction: rtl; text-align: right; }
     .stButton>button {
-        background-color: #4b8bf5; color: white; border-radius: 10px; padding: 10px; border: none; width: 100%; font-weight: bold;
+        background-color: #ff4b4b; color: white; border-radius: 10px; padding: 10px; border: none; width: 100%; font-weight: bold;
     }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("✨ סיכום סרטונים עם Gemini")
+st.title("✨ סיכום סרטונים (מנוע yt-dlp)")
 
-# --- חלק 4: הגדרות (Sidebar) ---
+# --- פונקציית העל: הורדת כתוביות ---
+def download_subs_clean(url):
+    # הגדרות למנוע ההורדה: רק כתוביות, בלי וידאו
+    ydl_opts = {
+        'skip_download': True,      # לא להוריד את הסרטון עצמו
+        'writesubtitles': True,     # כן להוריד כתוביות רגילות
+        'writeautomaticsub': True,  # כן להוריד כתוביות אוטומטיות
+        'subtitleslangs': ['he', 'en'], # עדיפות לעברית, ואז אנגלית
+        'outtmpl': 'temp_subs_%(id)s',  # שם הקובץ הזמני
+        'quiet': True,
+        'no_warnings': True
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            video_id = info['id']
+            
+            # ביצוע ההורדה בפועל
+            ydl.download([url])
+            
+            # חיפוש הקובץ שנוצר (יכול להיות עם סיומות שונות)
+            generated_files = [f for f in os.listdir('.') if f.startswith(f"temp_subs_{video_id}") and f.endswith('.vtt')]
+            
+            if not generated_files:
+                return None
+            
+            filename = generated_files[0]
+            
+            # קריאת הטקסט מתוך הקובץ
+            with open(filename, 'r', encoding='utf-8') as f:
+                content = f.read()
+                
+            # ניקוי הקובץ מהמחשב (לא להשאיר זבל)
+            os.remove(filename)
+            
+            # ניקוי בסיסי של הטקסט (הסרת זמנים ותגיות)
+            clean_lines = []
+            for line in content.splitlines():
+                if '-->' in line: continue         # דילוג על זמנים
+                if line.strip() == '': continue    # דילוג על שורות ריקות
+                if line.strip() == 'WEBVTT': continue
+                if line.strip().isdigit(): continue
+                # הסרת תגיות עיצוב אם יש
+                line = line.replace('&nbsp;', ' ').replace('align:start', '').replace('position:0%', '')
+                if line not in clean_lines[-2:]: # מניעת כפילויות רצופות
+                    clean_lines.append(line)
+                    
+            return " ".join(clean_lines)
+
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+# --- הגדרות מפתח ---
 with st.sidebar:
     st.header("🔑 הגדרות")
     api_key = st.text_input("Gemini API Key", type="password")
 
-# --- חלק 5: הטופס ---
+# --- הטופס ---
 with st.form("my_form"):
     url = st.text_input("🔗 קישור לסרטון יוטיוב")
-    email = st.text_input("📧 אימייל (אופציונלי)")
-    
     col1, col2 = st.columns(2)
     with col1:
         length = st.selectbox("📏 אורך", ["פסקה אחת", "סיכום מפורט", "נקודות עיקריות"])
     with col2:
         style = st.selectbox("🎨 סגנון", ["מקצועי", "קליל", "לימודי"])
-        
-    prompt_text = st.text_area("✍️ הערות")
+    prompt_text = st.text_area("✍️ בקשות מיוחדות")
     submitted = st.form_submit_button("🚀 סכם לי")
 
-# --- חלק 6: הלוגיקה ---
+# --- הלוגיקה ---
 if submitted:
     if not api_key:
-        st.error("❌ חסר מפתח API. נא להזין אותו בתפריט בצד.")
+        st.error("חסר מפתח API (בצד ימין)")
     elif not url:
-        st.warning("⚠️ נא להכניס קישור.")
+        st.warning("חסר קישור")
     else:
         status = st.empty()
-        try:
-            status.info("📥 מחלץ כתוביות...")
-            
-            # חילוץ מזהה הסרטון
-            video_id = None
-            if "v=" in url:
-                video_id = url.split("v=")[1].split("&")[0]
-            elif "youtu.be" in url:
-                video_id = url.split("/")[-1]
-            else:
-                video_id = url
-
-            if video_id:
-                # שימוש בפונקציה שיבאנו בצורה ישירה
-                transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['he', 'en'])
-                
-                formatter = TextFormatter()
-                full_text = formatter.format_transcript(transcript)
-                
-                status.info("✨ ג'מיני חושב...")
+        status.info("🚜 מפעיל מנוע yt-dlp להורדת טקסט...")
+        
+        # שימוש במנוע החדש
+        text = download_subs_clean(url)
+        
+        if text and "Error:" not in text:
+            status.info("✨ ג'מיני מסכם...")
+            try:
                 genai.configure(api_key=api_key)
                 model = genai.GenerativeModel('gemini-1.5-flash')
                 
                 ai_prompt = f"""
                 סכם את הטקסט הבא מסרטון יוטיוב בעברית.
-                טקסט: {full_text[:30000]}
+                הטקסט גולמי ומכיל שגיאות תמלול - התעלם מהן והתמקד בתוכן.
+                
+                תוכן: {text[:30000]}
+                
                 הנחיות: אורך: {length}, סגנון: {style}. {prompt_text}
                 """
                 
                 response = model.generate_content(ai_prompt)
-                summary = response.text
                 
                 status.empty()
                 st.success("הסיכום מוכן!")
                 st.markdown("### 📝 התוצאה:")
-                st.write(summary)
+                st.write(response.text)
                 
-                if email:
-                    subject = "סיכום סרטון: " + video_id
-                    safe_body = summary.replace('\n', '%0D%0A').replace('"', "'")
-                    mailto = f"mailto:{email}?subject={subject}&body={safe_body}"
-                    st.markdown(f'<a href="{mailto}" target="_blank"><button style="background-color:green;color:white;padding:10px;border-radius:5px;border:none;width:100%;cursor:pointer;">📧 שלח למייל שלי</button></a>', unsafe_allow_html=True)
-            else:
-                st.error("קישור לא תקין")
-
-        except Exception as e:
-            # דיאגנוסטיקה: אם זה נכשל שוב, נדפיס בדיוק מה יש בתוך הספרייה
-            st.error("אירעה שגיאה:")
-            st.code(str(e))
-            
-            if "get_transcript" in str(e):
-                st.warning("🔧 בדיקת מערכת:")
-                st.write(f"הספרייה נטענה מתוך: {YouTubeTranscriptApi}")
-                st.write("אנא שלח צילום מסך של הודעה זו כדי שנוכל לפתור את זה.")
-            elif "TranscriptsDisabled" in str(e):
-                st.warning("לסרטון הזה אין כתוביות זמינות ביוטיוב.")
+            except Exception as e:
+                st.error(f"שגיאה בג'מיני: {e}")
+        else:
+            status.empty()
+            st.error("לא הצלחנו להוריד כתוביות.")
+            if text:
+                st.error(f"פרטים טכניים: {text}")
+            st.warning("טיפ: וודא שלסרטון יש כתוביות (CC) פעילות ביוטיוב.")
