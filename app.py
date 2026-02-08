@@ -1,15 +1,8 @@
 import streamlit as st
 import google.generativeai as genai
-
-# --- התיקון הגדול: ייבוא דרך "דלת השירות" ---
-# במקום לייבא מהתיקייה הראשית, אנחנו נכנסים ישר לתוך המנוע
-try:
-    from youtube_transcript_api._api import YouTubeTranscriptApi
-except ImportError:
-    # גיבוי למקרה שהשם שונה בגרסאות אחרות
-    from youtube_transcript_api import YouTubeTranscriptApi
-
-from youtube_transcript_api.formatters import TextFormatter
+import subprocess # ספרייה להרצת פקודות מערכת
+import json
+import sys
 
 st.set_page_config(page_title="Gemini Video Summarizer", page_icon="✨", layout="centered")
 
@@ -33,6 +26,33 @@ with st.sidebar:
     st.header("🔑 הגדרות")
     api_key = st.text_input("Gemini API Key", type="password")
 
+# --- פונקציית עקיפה (Bypass) ---
+def get_transcript_via_cli(video_id):
+    """
+    מריץ את תמלול היוטיוב כפקודת מערכת נפרדת
+    כדי לעקוף את בעיות ה-Cache וה-Import בתוך פייתון
+    """
+    try:
+        # הרצת הפקודה מבחוץ
+        cmd = [
+            sys.executable, "-m", "youtube_transcript_api",
+            video_id,
+            "--languages", "he", "en",
+            "--format", "json"
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            raise Exception(f"שגיאה חיצונית: {result.stderr}")
+            
+        # המרת התשובה מ-JSON לטקסט רגיל
+        transcript_json = json.loads(result.stdout)
+        full_text = " ".join([item['text'] for item in transcript_json])
+        return full_text
+        
+    except Exception as e:
+        raise e
+
 # --- הטופס ---
 with st.form("my_form"):
     url = st.text_input("🔗 קישור לסרטון יוטיוב")
@@ -53,16 +73,18 @@ if submitted:
     else:
         status = st.empty()
         try:
-            status.info("📥 מחלץ כתוביות...")
+            status.info("📥 מחלץ כתוביות (בשיטה חיצונית)...")
             
-            # חילוץ מזהה הסרטון
-            video_id = url.split("v=")[1].split("&")[0] if "v=" in url else url.split("/")[-1]
+            # חילוץ ID
+            if "v=" in url:
+                video_id = url.split("v=")[1].split("&")[0]
+            elif "youtu.be" in url:
+                video_id = url.split("/")[-1]
+            else:
+                video_id = url # נסיון למקרה שהזינו רק ID
             
-            # השימוש בפונקציה הישירה
-            transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['he', 'en'])
-            
-            formatter = TextFormatter()
-            full_text = formatter.format_transcript(transcript)
+            # שימוש בפונקציה החדשה שעוקפת את הבעיה
+            full_text = get_transcript_via_cli(video_id)
             
             status.info("✨ ג'מיני חושב...")
             genai.configure(api_key=api_key)
@@ -87,9 +109,9 @@ if submitted:
                 safe_body = summary.replace('\n', '%0D%0A').replace('"', "'")
                 mailto = f"mailto:{email}?subject={subject}&body={safe_body}"
                 st.markdown(f'<a href="{mailto}" target="_blank"><button style="background-color:green;color:white;padding:10px;border-radius:5px;border:none;width:100%;cursor:pointer;">📧 שלח למייל שלי</button></a>', unsafe_allow_html=True)
-                
+
         except Exception as e:
-            st.error("שגיאה:")
-            st.code(e)
-            if "TranscriptsDisabled" in str(e):
-                st.warning("לסרטון הזה אין כתוביות ולכן אי אפשר לסכם אותו.")
+            st.error("אירעה שגיאה:")
+            st.code(str(e))
+            if "Could not retrieve a transcript" in str(e):
+                st.warning("הסרטון הזה לא מכיל כתוביות זמינות.")
